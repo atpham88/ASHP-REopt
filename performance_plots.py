@@ -10,9 +10,11 @@ import xlsxwriter as xw
 
 dir = os.getcwd()
 
+### WHAT TO GRAPH ###
+to_graph = 'electric' # 'thermal', 'electric' or 'both'
+
 ### PATH NAMES ### 
 data_path = os.path.join(dir,"data")
-post_path = os.path.join(dir,'data','posts')
 results_path = os.path.join(dir, 'results', 'results_json')
 
 jsonfiles = os.listdir(results_path)
@@ -25,7 +27,6 @@ for scenario_json in jsonfiles:
     scenario = scenario_json.split('.')[0]
     location = scenario.split('_')[0]
     building = scenario.split('_')[1]
-    config = int(scenario.split('config')[1])
 
     hours_to_graph_lower = 0
     hours_to_graph_higher = 200
@@ -36,15 +37,20 @@ for scenario_json in jsonfiles:
     with open(os.path.join(results_path, scenario_json), 'rb') as handle:
         parsed_data = json.load(handle)
 
+    try:
+        output_ASHP_WH = parsed_data["ASHPWaterHeater"]
+        output_ASHP_SH = parsed_data["ASHPSpaceHeater"]
+    except:
+        output_ASHP_WH = {}
+        output_ASHP_SH = {}
 
-    output_ASHP_WH = parsed_data["ASHPWaterHeater"]
-    output_ASHP_SH = parsed_data["ASHPSpaceHeater"]
     output_EB = parsed_data["ExistingBoiler"]
     output_Financial = parsed_data["Financial"]
     output_ELoad = parsed_data["ElectricLoad"]
     output_HLoad = parsed_data["HeatingLoad"]
     output_CLoad = parsed_data["CoolingLoad"]
     output_Site = parsed_data["Site"]
+
     hour = list(range(8760))
 
     try:
@@ -57,19 +63,37 @@ for scenario_json in jsonfiles:
     except:
         output_EC = {} 
 
-    # ASHP-SP output:
-    output_ASHP_SH_to_load_heating = output_ASHP_SH["thermal_to_space_heating_load_series_mmbtu_per_hour"]
-    output_ASHP_SH_to_load_cooling = output_ASHP_SH["thermal_to_load_series_ton"]
-    output_ASHP_SH_size = output_ASHP_SH["size_ton"]
-    output_ASHP_SH_elec_consumption = output_ASHP_SH["annual_electric_consumption_kwh"]
-    output_ASHP_SH_heating_production = output_ASHP_SH["annual_thermal_production_mmbtu"]
-    output_ASHP_SH_cooling_production = output_ASHP_SH["annual_thermal_production_tonhour"]
+    try:
+        output_PV = parsed_data["PV"]
+    except:
+        output_PV = {}     
+    
+    try:
+        # ASHP-SP output:
+        output_ASHP_SH_to_load_heating = output_ASHP_SH["thermal_to_space_heating_load_series_mmbtu_per_hour"]
+        output_ASHP_SH_to_load_cooling = output_ASHP_SH["thermal_to_load_series_ton"]
+        output_ASHP_SH_size = output_ASHP_SH["size_ton"]
+        output_ASHP_SH_elec_consumption = output_ASHP_SH["electric_consumption_series_kw"]
+        output_ASHP_SH_heating_production = output_ASHP_SH["annual_thermal_production_mmbtu"]
+        output_ASHP_SH_cooling_production = output_ASHP_SH["annual_thermal_production_tonhour"]
 
-    # ASHP-WH output:
-    output_ASHP_WH_to_dwh_load_heating = output_ASHP_WH["thermal_to_dhw_load_series_mmbtu_per_hour"]
-    output_ASHP_WH_size = output_ASHP_WH["size_ton"]
-    output_ASHP_WH_elec_consumption = output_ASHP_WH["annual_electric_consumption_kwh"]
-    output_ASHP_WH_heating_production = output_ASHP_WH["annual_thermal_production_mmbtu"]
+        # ASHP-WH output:
+        output_ASHP_WH_to_dwh_load_heating = output_ASHP_WH["thermal_to_dhw_load_series_mmbtu_per_hour"]
+        output_ASHP_WH_size = output_ASHP_WH["size_ton"]
+        output_ASHP_WH_elec_consumption = output_ASHP_WH["electric_consumption_series_kw"]
+        output_ASHP_WH_heating_production = output_ASHP_WH["annual_thermal_production_mmbtu"]
+    except:
+        output_ASHP_SH_to_load_heating = [0] * 8760
+        output_ASHP_SH_to_load_cooling = [0] * 8760
+        output_ASHP_SH_size = 0
+        output_ASHP_SH_elec_consumption = [0] * 8760
+        output_ASHP_SH_heating_production = 0
+        output_ASHP_SH_cooling_production = 0
+
+        output_ASHP_WH_to_dwh_load_heating = [0] * 8760
+        output_ASHP_WH_size = 0
+        output_ASHP_WH_elec_consumption = [0] * 8760
+        output_ASHP_WH_heating_production = 0
 
     # Electric Heater output:
     try:
@@ -110,77 +134,108 @@ for scenario_json in jsonfiles:
     output_DWHLoad = output_HLoad["dhw_thermal_load_series_mmbtu_per_hour"]
     output_SCLoad = output_CLoad["load_series_ton"]
 
+    # Electric Load:
+    output_elec_load = np.array(output_ELoad["load_series_kw"]) + np.array(output_ASHP_SH_elec_consumption) + np.array(output_ASHP_WH_elec_consumption)
+    output_PV_load = output_PV["electric_to_load_series_kw"]
+    output_grid_load = np.subtract(output_elec_load,output_PV["electric_to_load_series_kw"])
+
     ## Figures
-    # Heating Load Supply:
-    dict_hload = {'hour': hour, 'ASHP-SH to SH Load': output_ASHP_SH_to_load_heating, 'Existing Boiler to SH Load': output_EB_to_sh_load} 
-    
-    # DWH Supply:
-    dict_dhwload = {'hour': hour, 'ASHP-WH to DHW Load': output_ASHP_WH_to_dwh_load_heating, 'ExistingBoiler to DHW Load': output_EB_to_dwh_load}    
 
-    # Graph performance data - Space Heating
-    #plt.style.use("seaborn")
-    #colors = sns.color_palette("Pastel1", 6)
-    colors = ["#a8e6cf", "#ffaaa5"]
-    #sns.set_style(style='white')
-    labels=["ASHP-SH to SH Load", "Existing Boiler to SH Load"]
+    if to_graph == 'thermal' or to_graph == 'both':
+        # Heating Load Supply:
+        dict_hload = {'hour': hour, 'ASHP-SH to SH Load': output_ASHP_SH_to_load_heating, 'Existing Boiler to SH Load': output_EB_to_sh_load} 
+        
+        # DWH Supply:
+        dict_dhwload = {'hour': hour, 'ASHP-WH to DHW Load': output_ASHP_WH_to_dwh_load_heating, 'ExistingBoiler to DHW Load': output_EB_to_dwh_load}    
 
-    fig, ax = plt.subplots(figsize=(17,5))
-    plt.stackplot(hour[hours_to_graph_lower:hours_to_graph_higher], output_ASHP_SH_to_load_heating[hours_to_graph_lower:hours_to_graph_higher], 
-                output_EB_to_sh_load[hours_to_graph_lower:hours_to_graph_higher],
-                labels=labels, colors=colors, edgecolor = "none")
-    plt.plot(hour[hours_to_graph_lower:hours_to_graph_higher], output_SHLoad[hours_to_graph_lower:hours_to_graph_higher], label = "SH Load",linewidth=1, color='black')
-    plt.xlabel("Hour in Year",fontsize=17)
-    plt.xticks(fontsize=13)
-    plt.yticks(fontsize=13)
-    plt.ylabel("MMBTU", fontsize=15)
-    plt.rcParams["axes.edgecolor"] = "black"
-    plt.rcParams["axes.linewidth"] = 1
-    plt.legend(bbox_to_anchor=(1.0, 1.0), loc='upper left')
-    plt.xlim(hours_to_graph_lower,hours_to_graph_higher)
+        # Graph performance data - Space Heating
+        #plt.style.use("seaborn")
+        #colors = sns.color_palette("Pastel1", 6)
+        colors = ["#a8e6cf", "#ffaaa5"]
+        #sns.set_style(style='white')
+        labels=["ASHP-SH to SH Load", "Existing Boiler to SH Load"]
 
-    fig.savefig(os.path.join(dir, 'results', 'figures', 'ashp_sh_'+scenario+'.png'), dpi=300,bbox_inches='tight')
+        fig, ax = plt.subplots(figsize=(17,5))
+        plt.stackplot(hour[hours_to_graph_lower:hours_to_graph_higher], output_ASHP_SH_to_load_heating[hours_to_graph_lower:hours_to_graph_higher], 
+                    output_EB_to_sh_load[hours_to_graph_lower:hours_to_graph_higher],
+                    labels=labels, colors=colors, edgecolor = "none")
+        plt.plot(hour[hours_to_graph_lower:hours_to_graph_higher], output_SHLoad[hours_to_graph_lower:hours_to_graph_higher], label = "SH Load",linewidth=1, color='black')
+        plt.xlabel("Hour in Year",fontsize=20)
+        plt.xticks(fontsize=17)
+        plt.yticks(fontsize=17)
+        plt.ylabel("MMBTU", fontsize=20)
+        plt.rcParams["axes.edgecolor"] = "black"
+        plt.rcParams["axes.linewidth"] = 1
+        plt.legend(loc='upper right',fontsize=19)
+        plt.xlim(hours_to_graph_lower,hours_to_graph_higher)
+
+        fig.savefig(os.path.join(dir, 'results', 'figures', 'ashp_sh_'+scenario+'.png'), dpi=300,bbox_inches='tight')
 
 
-    # Graph performance data - DHW Heating
-    #plt.style.use("seaborn")
-    #colors = sns.color_palette("Pastel1", 6)
-    colors = ["#a8e6cf", "#ffaaa5"]
-    #sns.set_style(style='white')
-    labels=["ASHP-WH to DHW Load", "Existing Boiler to DHW Load"]
+        # Graph performance data - DHW Heating
+        #plt.style.use("seaborn")
+        #colors = sns.color_palette("Pastel1", 6)
+        colors = ["#a8e6cf", "#ffaaa5"]
+        #sns.set_style(style='white')
+        labels=["ASHP-WH to DHW Load", "Existing Boiler to DHW Load"]
 
-    fig, ax = plt.subplots(figsize=(17,5))
-    plt.stackplot(hour[hours_to_graph_lower:hours_to_graph_higher], output_ASHP_WH_to_dwh_load_heating[hours_to_graph_lower:hours_to_graph_higher], 
-                output_EB_to_dwh_load[hours_to_graph_lower:hours_to_graph_higher],labels=labels, colors=colors, edgecolor = "none")
-    plt.plot(hour[hours_to_graph_lower:hours_to_graph_higher], output_DWHLoad[hours_to_graph_lower:hours_to_graph_higher], label = "DHW Load",linewidth=1, color='black')
-    plt.xlabel("Hour in Year",fontsize=17)
-    plt.xticks(fontsize=13)
-    plt.yticks(fontsize=13)
-    plt.ylabel("MMBTU", fontsize=15)
-    plt.rcParams["axes.edgecolor"] = "black"
-    plt.rcParams["axes.linewidth"] = 1
-    plt.legend(bbox_to_anchor=(1.0, 1.0), loc='upper left')
-    plt.xlim(hours_to_graph_lower,hours_to_graph_higher)
+        fig, ax = plt.subplots(figsize=(17,5))
+        plt.stackplot(hour[hours_to_graph_lower:hours_to_graph_higher], output_ASHP_WH_to_dwh_load_heating[hours_to_graph_lower:hours_to_graph_higher], 
+                    output_EB_to_dwh_load[hours_to_graph_lower:hours_to_graph_higher],labels=labels, colors=colors, edgecolor = "none")
+        plt.plot(hour[hours_to_graph_lower:hours_to_graph_higher], output_DWHLoad[hours_to_graph_lower:hours_to_graph_higher], label = "DHW Load",linewidth=1, color='black')
+        plt.xlabel("Hour in Year",fontsize=20)
+        plt.xticks(fontsize=17)
+        plt.yticks(fontsize=17)
+        plt.ylabel("MMBTU", fontsize=20)
+        plt.rcParams["axes.edgecolor"] = "black"
+        plt.rcParams["axes.linewidth"] = 1
+        plt.legend(loc='upper right',fontsize=19)
+        plt.xlim(hours_to_graph_lower,hours_to_graph_higher)
 
-    fig.savefig(os.path.join(dir, 'results', 'figures', 'ashp_wh_'+scenario+'.png'), dpi=300,bbox_inches='tight')
+        fig.savefig(os.path.join(dir, 'results', 'figures', 'ashp_wh_'+scenario+'.png'), dpi=300,bbox_inches='tight')
 
-    # Space Cooling:
-    #plt.style.use("seaborn")
-    #colors = sns.color_palette("Pastel1", 6)
-    colors = ["#a8e6cf", "#ffaaa5"]
-    #sns.set_style(style='white')
-    labels=["ASHP-SH to SC Load", "Existing Chiller to SC Load"]
+        # Space Cooling:
+        #plt.style.use("seaborn")
+        #colors = sns.color_palette("Pastel1", 6)
+        colors = ["#a8e6cf", "#ffaaa5"]
+        #sns.set_style(style='white')
+        labels=["ASHP-SH to SC Load", "Existing Chiller to SC Load"]
 
-    fig, ax = plt.subplots(figsize=(17,5))
-    plt.stackplot(hour[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], output_ASHP_SH_to_load_cooling[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], 
-                output_EC_to_cooling_load[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling],labels=labels, colors=colors, edgecolor = "none")
-    plt.plot(hour[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], output_SCLoad[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], label = "SC Load",linewidth=1, color='black')
-    plt.xlabel("Hour in Year",fontsize=17)
-    plt.xticks(fontsize=13)
-    plt.yticks(fontsize=13)
-    plt.ylabel("Ton", fontsize=15)
-    plt.rcParams["axes.edgecolor"] = "black"
-    plt.rcParams["axes.linewidth"] = 1
-    plt.legend(bbox_to_anchor=(1.0, 1.0), loc='upper left')
-    plt.xlim(hours_to_graph_lower_cooling,hours_to_graph_higher_cooling)
+        fig, ax = plt.subplots(figsize=(17,5))
+        plt.stackplot(hour[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], output_ASHP_SH_to_load_cooling[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], 
+                    output_EC_to_cooling_load[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling],labels=labels, colors=colors, edgecolor = "none")
+        plt.plot(hour[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], output_SCLoad[hours_to_graph_lower_cooling:hours_to_graph_higher_cooling], label = "SC Load",linewidth=1, color='black')
+        plt.xlabel("Hour in Year",fontsize=20)
+        plt.xticks(fontsize=17)
+        plt.yticks(fontsize=17)
+        plt.ylabel("Ton", fontsize=20)
+        plt.rcParams["axes.edgecolor"] = "black"
+        plt.rcParams["axes.linewidth"] = 1
+        plt.legend(loc='upper right',fontsize=19)
+        plt.xlim(hours_to_graph_lower_cooling,hours_to_graph_higher_cooling)
 
-    fig.savefig(os.path.join(dir, 'results', 'figures', 'ashp_sc_'+scenario+'.png'), dpi=300,bbox_inches='tight')
+        fig.savefig(os.path.join(dir, 'results', 'figures', 'ashp_sc_'+scenario+'.png'), dpi=300,bbox_inches='tight')
+
+    if to_graph == 'electric' or to_graph == 'both':
+        # Graph performance data - Electric
+        colors = ["#a8e6cf", "#ffaaa5"]
+        #sns.set_style(style='white')
+        labels=["Solar PV to Load", "Grid to Load"]
+
+        fig, ax = plt.subplots(figsize=(17,5))
+        plt.stackplot(hour, output_PV_load, output_grid_load,labels=labels, colors=colors, edgecolor = "none")
+        plt.plot(hour, output_elec_load, label = "Electric Load",linewidth=1, color='black')
+
+        plt.xlabel("Hour in Year",fontsize=20)
+        plt.xticks(fontsize=17)
+        plt.yticks(fontsize=17)
+        plt.ylabel("kW", fontsize=20)
+        plt.rcParams["axes.edgecolor"] = "black"
+        plt.rcParams["axes.linewidth"] = 1
+        plt.legend(loc='upper right',fontsize=19)
+        plt.xlim(hours_to_graph_lower,hours_to_graph_higher)
+        #plt.xlim(5200,5600)
+        #plt.ylim(0,2600)
+
+        fig.savefig(os.path.join(dir, 'results', 'figures', 'elec_load_'+scenario+'.png'), dpi=300,bbox_inches='tight')
+

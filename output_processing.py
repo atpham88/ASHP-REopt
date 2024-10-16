@@ -23,7 +23,7 @@ results_book = xw.Workbook(os.path.join(results_summary_path, "ASHP_Case_Studies
 result_sheet_all = results_book.add_worksheet('summary')
 
 # Outputs to summarize:
-output = ["Location", "Building Type", "Configuration", "ASHP-SH Size [ton]", "ASHP-WH Size [ton]", "LCC", "LCC-BAU", "NPV",
+output = ["Location", "Building Type", "Added Tech", "Configuration", "ASHP-SH Size [ton]", "ASHP-WH Size [ton]", "LCC", "LCC-BAU", "NPV",
           "LCCC", "NPV-Fuel", "NPV-Elec Bill", "CO2 Emission Saving [kTonne]", "Avoided Health Damages [T$]", "Avoided Climate Damages [T$]",
           "ASHP-SH Annual Elec Consumption", "ASHP-WH Annual Elec Consumption", "ASHP-SH Annual Thermal Production-Heat", 
           "ASHP-SH Annual Thermal Production-Cool", "ASHP-WH Annual Thermal Production", "Electric Heater Size [mmbtu]",
@@ -42,7 +42,13 @@ for scenario_json in jsonfiles:
     scenario = scenario_json.split('.')[0]
     location = scenario.split('_')[0]
     building = scenario.split('_')[1]
-    config = int(scenario.split('config')[1])
+    config = scenario.split('config')[1]
+    if len(config) > 1:
+        added_tech = config.split('_')[1]
+        config = config.split('_')[0]
+    else:
+        added_tech = 'None'
+    config = int(config)
 
     #if config == 2 or config == 4:
     #    continue
@@ -71,6 +77,16 @@ for scenario_json in jsonfiles:
         output_EC = parsed_data["ExistingChiller"]
     except:
         output_EC = {}    
+
+    try:
+        output_PV = parsed_data["PV"]
+    except:
+        output_PV = {} 
+
+    try:
+        output_BESS = parsed_data["ElectricStorage"]
+    except:
+        output_BESS = {}           
 
     hour = list(range(8760))
 
@@ -138,7 +154,7 @@ for scenario_json in jsonfiles:
     # Payback Years:
     simple_payback_years = output_Financial["simple_payback_years"]
 
-    output_value = [location, building, config, output_ASHP_SH_size, output_ASHP_WH_size, lcc, lcc_bau, npv,
+    output_value = [location, building, added_tech, config, output_ASHP_SH_size, output_ASHP_WH_size, lcc, lcc_bau, npv,
           lccc, npv_fuel, npv_elec_bill, output_CO2_saving/1000, avoided_health_damages/1000, avoided_climate_damages/1000,
           output_ASHP_SH_elec_consumption, output_ASHP_WH_elec_consumption, output_ASHP_SH_heating_production, 
           output_ASHP_SH_cooling_production, output_ASHP_WH_heating_production, output_EH_size, output_EH_elec_consumption,
